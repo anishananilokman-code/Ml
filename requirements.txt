@@ -1,9 +1,10 @@
-plotly
-seaborn
-matplotlib
-scikit-learn
-xgboost
-imbalanced-learn
+openpyxl
 pandas
 numpy
+scikit-learn
+xgboost
+plotly
 streamlit
+seaborn
+matplotlib
+imbalanced-learn
