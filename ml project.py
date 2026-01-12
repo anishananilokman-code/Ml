@@ -84,7 +84,7 @@ st.caption("📊 GDP | 🏭 Productivity | 💼 Work Hours | 👥 Labor Force")
 @st.cache_data
 def load_data():
     # Use read_excel instead of read_csv for Excel files
-    data = pd.read_excel(r'C:\Users\User\Desktop\ump\sem 5\ML\group project\clean_data.xlsx')
+    data = pd.read_excel(r'clean_data.xlsx')
     return data
 
 data = load_data()
@@ -359,4 +359,5 @@ elif section == "Prediction":
     ax.set_title("Entered Economic Indicators", fontsize=16)
     ax.set_ylabel("Value")
     st.pyplot(fig)
+
 
