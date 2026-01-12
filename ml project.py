@@ -29,19 +29,17 @@ def load_data():
     try:
         df = pd.read_csv('clean_data.csv')
         
-        # Force date parsing, turn invalid → NaT
+        # Force date parsing
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        
-        # Drop rows with invalid dates
         df = df.dropna(subset=['date'])
         
-        # Remove obvious percentage rows (employment == 100 or very low)
-        df = df[df['employment'] > 500].copy()  # adjust threshold if needed
+        # Remove percentage-like rows (employment ≈ 100 or very small)
+        df = df[df['employment'] > 500].copy()
         
-        # Drop exact duplicates
+        # Remove duplicates
         df = df.drop_duplicates()
         
-        # Keep only one row per date-sector (take first/most complete)
+        # Keep one row per date-sector (most complete)
         df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
         
         return df
@@ -51,19 +49,20 @@ def load_data():
 
 data = load_data()
 
-# Debug: Show available years (comment out after checking)
-with st.sidebar:
-    st.caption("Debug: Years in dataset")
-    st.write(data['date'].dt.year.value_counts().sort_index())
-
 # ─────────────────────────────────────────────────────────────
-# Sidebar filters
+# Sidebar – Debug years + filters
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
+    
+    # Debug: show available years
+    st.caption("Available years in dataset:")
+    year_counts = data['date'].dt.year.value_counts().sort_index()
+    st.write(year_counts)
+    
     min_year = int(data['date'].dt.year.min())
     max_year = int(data['date'].dt.year.max())
-    year_range = st.slider("Year Range", min_year, max_year, (min_year, max_year))
+    year_range = st.slider("Year Range", min_year, max_year, (2018, 2020))  # default 2018-2020
 
     all_sectors = sorted(data['sector'].unique())
     selected_sectors = st.multiselect("Sectors", all_sectors, default=all_sectors)
@@ -74,11 +73,11 @@ filtered_data = data[
 ].copy()
 
 if filtered_data.empty:
-    st.warning("No data matches the selected filters.")
+    st.warning(f"No data found for {year_range[0]}–{year_range[1]}. Check available years in sidebar.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
-# Train & evaluate models (on full cleaned data)
+# Train & evaluate models
 # ─────────────────────────────────────────────────────────────
 @st.cache_resource
 def train_and_evaluate():
@@ -154,7 +153,7 @@ model_results = train_and_evaluate()
 # Main title
 # ─────────────────────────────────────────────────────────────
 st.title("Malaysia Labour Market Dashboard – MSIC Sectors")
-st.caption("GDP, Employment & Sector Classification Analysis (2016–2022)")
+st.caption("GDP, Employment & Sector Classification (2016–2022)")
 
 # ─────────────────────────────────────────────────────────────
 # Tabs
@@ -293,7 +292,7 @@ with tab_model:
 # ─────────────────────────────────────────────────────────────
 with tab_data:
     st.subheader("Filtered Data Table")
-    st.caption("Shows rows matching the selected year range and sectors")
+    st.caption(f"Showing data for {year_range[0]}–{year_range[1]} and selected sectors")
 
     st.dataframe(filtered_data.sort_values(['date', 'sector']), use_container_width=True)
 
