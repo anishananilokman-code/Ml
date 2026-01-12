@@ -22,13 +22,28 @@ import xgboost as xgb
 st.set_page_config(page_title="Malaysia Labour Market Dashboard", layout="wide")
 
 # ─────────────────────────────────────────────────────────────
-# Load data
+# Load & clean data
 # ─────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
     try:
         df = pd.read_csv('clean_data.csv')
-        df['date'] = pd.to_datetime(df['date'])
+        
+        # Force date parsing, turn invalid → NaT
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        
+        # Drop rows with invalid dates
+        df = df.dropna(subset=['date'])
+        
+        # Remove obvious percentage rows (employment == 100 or very low)
+        df = df[df['employment'] > 500].copy()  # adjust threshold if needed
+        
+        # Drop exact duplicates
+        df = df.drop_duplicates()
+        
+        # Keep only one row per date-sector (take first/most complete)
+        df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
+        
         return df
     except FileNotFoundError:
         st.error("clean_data.csv not found.")
@@ -36,8 +51,13 @@ def load_data():
 
 data = load_data()
 
+# Debug: Show available years (comment out after checking)
+with st.sidebar:
+    st.caption("Debug: Years in dataset")
+    st.write(data['date'].dt.year.value_counts().sort_index())
+
 # ─────────────────────────────────────────────────────────────
-# Sidebar filters (affect visualizations only)
+# Sidebar filters
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
@@ -58,7 +78,7 @@ if filtered_data.empty:
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
-# Train & evaluate models (once, on full data)
+# Train & evaluate models (on full cleaned data)
 # ─────────────────────────────────────────────────────────────
 @st.cache_resource
 def train_and_evaluate():
@@ -134,10 +154,10 @@ model_results = train_and_evaluate()
 # Main title
 # ─────────────────────────────────────────────────────────────
 st.title("Malaysia Labour Market Dashboard – MSIC Sectors")
-st.caption("GDP, Employment & Sector Classification Analysis")
+st.caption("GDP, Employment & Sector Classification Analysis (2016–2022)")
 
 # ─────────────────────────────────────────────────────────────
-# Tabs (Employment Structure removed)
+# Tabs
 # ─────────────────────────────────────────────────────────────
 tab_kpi, tab_trends, tab_predict, tab_model, tab_data = st.tabs([
     "📊 Key Indicators",
@@ -151,9 +171,10 @@ tab_kpi, tab_trends, tab_predict, tab_model, tab_data = st.tabs([
 # Tab 1: Key Indicators
 # ─────────────────────────────────────────────────────────────
 with tab_kpi:
-    st.subheader(f"Key Indicators – Latest year ({filtered_data['date'].dt.year.max()})")
+    st.subheader(f"Key Indicators – Latest year in filter ({filtered_data['date'].dt.year.max()})")
 
-    latest = filtered_data[filtered_data['date'].dt.year == filtered_data['date'].dt.year.max()]
+    latest_year = filtered_data['date'].dt.year.max()
+    latest = filtered_data[filtered_data['date'].dt.year == latest_year]
 
     if not latest.empty:
         tot_emp = latest['employment'].sum()
@@ -171,7 +192,6 @@ with tab_kpi:
         c4.metric("% Own-account", f"{struc['employed_own_account']/tot_workers*100:.1f}%")
         c5.metric("% Employers", f"{struc['employed_employer']/tot_workers*100:.1f}%")
 
-    # Pie chart – Share of employment
     emp_share = filtered_data.groupby('sector')['employment'].sum().reset_index()
     fig_pie = px.pie(emp_share, values='employment', names='sector',
                      title="Share of Total Employment by Sector", hole=0.4)
@@ -248,7 +268,6 @@ with tab_model:
 
     st.dataframe(styled, use_container_width=True)
 
-    # Bar comparison
     melt = df_metrics.melt(id_vars='Model',
                            value_vars=['Accuracy', 'F1-Score (macro)', 'Precision (macro)', 'Recall (macro)'],
                            var_name='Metric', value_name='Score')
@@ -258,7 +277,6 @@ with tab_model:
     fig_bar.update_layout(yaxis_range=[0, 1.05])
     st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Classification report for best model
     st.markdown(f"### Classification Report – Best Model ({model_results['best_name']})")
     y_true = model_results['y_test']
     y_pred_best = model_results['predictions'][model_results['best_name']]
@@ -275,14 +293,14 @@ with tab_model:
 # ─────────────────────────────────────────────────────────────
 with tab_data:
     st.subheader("Filtered Data Table")
-    st.caption("Shows only rows matching current year range and selected sectors")
+    st.caption("Shows rows matching the selected year range and sectors")
 
     st.dataframe(filtered_data.sort_values(['date', 'sector']), use_container_width=True)
 
     st.download_button(
         "Download filtered data (CSV)",
         filtered_data.to_csv(index=False).encode('utf-8'),
-        "filtered_malaysia_labour_data.csv",
+        f"malaysia_labour_{year_range[0]}-{year_range[1]}.csv",
         "text/csv"
     )
 
