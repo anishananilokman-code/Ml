@@ -1,276 +1,289 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import xgboost as xgb
+import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, classification_report, mean_absolute_error, mean_squared_error
-from imblearn.over_sampling import SMOTE
-import plotly.express as px
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    mean_absolute_error, mean_squared_error, classification_report
+)
+import xgboost as xgb
 
-# ── Global variables for prediction (set after training) ──
-best_model = None
-fitted_scaler = None
-fitted_encoder = None
+# ─────────────────────────────────────────────────────────────
+# Page config
+# ─────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Malaysia Labour Market Dashboard", layout="wide")
 
-# Load and preprocess the data
+# ─────────────────────────────────────────────────────────────
+# Load data
+# ─────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
     try:
-        data = pd.read_csv('clean_data.csv')  # Make sure this file exists in the same folder
+        df = pd.read_csv('clean_data.csv')
+        df['date'] = pd.to_datetime(df['date'])
+        return df
     except FileNotFoundError:
-        st.error("File 'clean_data.csv' not found. Please place it in the same directory as this script.")
+        st.error("clean_data.csv not found.")
         st.stop()
-    
-    data['date'] = pd.to_datetime(data['date'])
 
-    # Feature Engineering
-    data['output_per_hour'] = data['output_hour'] / data['hours'].replace(0, np.nan)
-    data['GDP_per_worker'] = data['gdp'] / data['employment'].replace(0, np.nan)
-    data['log_GDP'] = np.log(data['gdp'] + 1)
-    
-    data['employed_employer_percentage']    = data['employed_employer'] / data['employment'] * 100
-    data['employed_employee_percentage']    = data['employed_employee'] / data['employment'] * 100
-    data['employed_own_account_percentage'] = data['employed_own_account'] / data['employment'] * 100
-    data['employed_unpaid_family_percentage']= data['employed_unpaid_family'] / data['employment'] * 100
+data = load_data()
 
-    data.replace([np.inf, -np.inf], np.nan, inplace=True)
-    
-    numeric_cols = data.select_dtypes(include=[np.number]).columns
-    data[numeric_cols] = data[numeric_cols].fillna(data[numeric_cols].mean())
+# ─────────────────────────────────────────────────────────────
+# Sidebar filters (affect visualizations only)
+# ─────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.header("Filters")
+    min_year = int(data['date'].dt.year.min())
+    max_year = int(data['date'].dt.year.max())
+    year_range = st.slider("Year Range", min_year, max_year, (min_year, max_year))
 
-    return data
+    all_sectors = sorted(data['sector'].unique())
+    selected_sectors = st.multiselect("Sectors", all_sectors, default=all_sectors)
 
-def preprocess_data(data):
-    encoder = LabelEncoder()
-    y = data['sector']
-    y_encoded = encoder.fit_transform(y)
-    
-    X = data[['gdp', 'employment', 'hours', 'output_per_hour', 'GDP_per_worker', 'log_GDP',
-              'employed_employer_percentage', 'employed_employee_percentage',
-              'employed_own_account_percentage', 'employed_unpaid_family_percentage']]
-    
+filtered_data = data[
+    (data['date'].dt.year.between(year_range[0], year_range[1])) &
+    (data['sector'].isin(selected_sectors))
+].copy()
+
+if filtered_data.empty:
+    st.warning("No data matches the selected filters.")
+    st.stop()
+
+# ─────────────────────────────────────────────────────────────
+# Train & evaluate models (once, on full data)
+# ─────────────────────────────────────────────────────────────
+@st.cache_resource
+def train_and_evaluate():
+    df = data.copy()
+
+    le = LabelEncoder()
+    y = le.fit_transform(df['sector'])
+
+    features = [
+        'gdp', 'employment', 'hours', 'output_hour', 'output_employment',
+        'employed_employer', 'employed_employee', 'employed_own_account', 'employed_unpaid_family'
+    ]
+    features = [f for f in features if f in df.columns]
+    X = df[features].fillna(0)
+
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
-    
-    X_train = X_train.replace([np.inf, -np.inf], np.nan).fillna(X_train.mean())
-    X_test  = X_test.replace([np.inf, -np.inf], np.nan).fillna(X_train.mean())   # use train means
 
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled  = scaler.transform(X_test)
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s = scaler.transform(X_test)
 
-    smote = SMOTE(random_state=42)
-    X_train_sm, y_train_sm = smote.fit_resample(X_train_scaled, y_train)
-    
-    return X_train_sm, X_test_scaled, y_train_sm, y_test, encoder, scaler
-
-def train_models(X_train_sm, y_train_sm):
     models = {
-        "XGBoost": xgb.XGBClassifier(n_estimators=200, learning_rate=0.1, max_depth=5, random_state=42),
-        "Random Forest": RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42),
+        "XGBoost": xgb.XGBClassifier(random_state=42, eval_metric='mlogloss'),
+        "Random Forest": RandomForestClassifier(random_state=42),
         "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
-        "SVM": SVC(kernel='rbf', probability=True, random_state=42)
+        "SVM": SVC(probability=True, random_state=42)
     }
-    
-    trained = {}
+
+    metrics_list = []
+    preds_dict = {}
+
     for name, model in models.items():
-        model.fit(X_train_sm, y_train_sm)
-        trained[name] = model
-    
-    return trained
+        model.fit(X_train_s, y_train)
+        y_pred = model.predict(X_test_s)
+        preds_dict[name] = y_pred
 
-def evaluate_models(trained_models, X_test_scaled, y_test, encoder):
-    results = []
-    for name, model in trained_models.items():
-        y_pred = model.predict(X_test_scaled)
         acc = accuracy_score(y_test, y_pred)
-        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-        
-        results.append({
-            "Model": name,
-            "Accuracy": acc,
-            "MAE": mean_absolute_error(y_test, y_pred),
-            "RMSE": np.sqrt(mean_squared_error(y_test, y_pred)),
-            "Precision (macro)": report['macro avg']['precision'],
-            "Recall (macro)": report['macro avg']['recall'],
-            "F1-Score (macro)": report['macro avg']['f1-score'],
+        prec = precision_score(y_test, y_pred, average='macro', zero_division=0)
+        rec = recall_score(y_test, y_pred, average='macro', zero_division=0)
+        f1 = f1_score(y_test, y_pred, average='macro', zero_division=0)
+        mae = mean_absolute_error(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+        metrics_list.append({
+            'Model': name,
+            'Accuracy': acc,
+            'Precision (macro)': prec,
+            'Recall (macro)': rec,
+            'F1-Score (macro)': f1,
+            'MAE': mae,
+            'RMSE': rmse
         })
-    
-    return pd.DataFrame(results)
 
-# ── The missing prediction function ───────────────────────────────────
-def make_prediction(gdp, employment, hours):
-    global best_model, fitted_scaler, fitted_encoder
-    
-    if best_model is None or fitted_scaler is None or fitted_encoder is None:
-        return "Model not ready yet. Please wait a moment."
-    
-    if employment <= 0:
-        return "Employment must be greater than 0"
-    
-    output_per_hour = hours / employment
-    gdp_per_worker  = gdp / employment
-    log_gdp         = np.log(gdp + 1)
-    
-    # Rough fallback values — in production you should use sector-specific medians from training data
-    employer_pct     = 10.0
-    employee_pct     = 70.0
-    own_account_pct  = 15.0
-    unpaid_pct       = 5.0
-    
-    input_dict = {
-        'gdp': gdp,
-        'employment': employment,
-        'hours': hours,
-        'output_per_hour': output_per_hour,
-        'GDP_per_worker': gdp_per_worker,
-        'log_GDP': log_gdp,
-        'employed_employer_percentage': employer_pct,
-        'employed_employee_percentage': employee_pct,
-        'employed_own_account_percentage': own_account_pct,
-        'employed_unpaid_family_percentage': unpaid_pct,
+    metrics_df = pd.DataFrame(metrics_list)
+    best_model_name = metrics_df.loc[metrics_df['F1-Score (macro)'].idxmax(), 'Model']
+    best_model = models[best_model_name]
+
+    return {
+        'best_model': best_model,
+        'best_name': best_model_name,
+        'scaler': scaler,
+        'encoder': le,
+        'metrics_df': metrics_df,
+        'y_test': y_test,
+        'predictions': preds_dict
     }
-    
-    input_df = pd.DataFrame([input_dict])
-    input_scaled = fitted_scaler.transform(input_df)
-    
-    pred_encoded = best_model.predict(input_scaled)[0]
-    predicted_sector = fitted_encoder.inverse_transform([pred_encoded])[0]
-    
-    # Show confidence if the model supports predict_proba
-    try:
-        proba = best_model.predict_proba(input_scaled)[0]
-        confidence = proba.max() * 100
-        return f"{predicted_sector} ({confidence:.1f}% confidence)"
-    except:
-        return predicted_sector
 
-# ── Visualization functions ───────────────────────────────────────────
-def plot_employment_distribution(data):
-    sector_emp = data.groupby('sector')['employment'].sum().sort_values(ascending=False)
-    fig = px.pie(sector_emp, values=sector_emp.values, names=sector_emp.index,
-                 title="Share of Total Employment by Sector")
-    st.plotly_chart(fig, use_container_width=True)
+model_results = train_and_evaluate()
 
-def plot_gdp_trend_by_sector(data):
-    plt.figure(figsize=(12, 6))
-    sns.lineplot(data=data, x='date', y='gdp', hue='sector', marker='o')
-    plt.title('GDP Trend Over Time by Sector')
-    plt.xlabel('Date')
-    plt.ylabel('GDP')
-    plt.xticks(rotation=45)
-    plt.grid(True, alpha=0.3)
-    st.pyplot(plt)
+# ─────────────────────────────────────────────────────────────
+# Main title
+# ─────────────────────────────────────────────────────────────
+st.title("Malaysia Labour Market Dashboard – MSIC Sectors")
+st.caption("GDP, Employment & Sector Classification Analysis")
 
-def plot_scatter_gdp_vs_other(data):
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
-    plots = [
-        ('employment', 'Employment', 'steelblue'),
-        ('hours', 'Total Working Hours', 'green'),
-        ('output_hour', 'Output per Hour', 'orange'),
-        ('output_employment', 'Output per Employee', 'purple')
-    ]
-    
-    for i, (col, title, color) in enumerate(plots):
-        ax = axes[i]
-        ax.scatter(data['gdp'], data[col], color=color, alpha=0.6)
-        ax.set_xlabel('GDP')
-        ax.set_ylabel(title)
-        ax.set_title(f'GDP vs {title}')
-        ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    st.pyplot(fig)
+# ─────────────────────────────────────────────────────────────
+# Tabs (Employment Structure removed)
+# ─────────────────────────────────────────────────────────────
+tab_kpi, tab_trends, tab_predict, tab_model, tab_data = st.tabs([
+    "📊 Key Indicators",
+    "📈 Trends & EDA",
+    "🔮 Sector Prediction",
+    "📊 Model Performance",
+    "📋 Data Table"
+])
 
-def plot_heatmap(data):
-    key_vars = ['gdp', 'employment', 'hours', 'output_hour', 'output_employment']
-    corr = data[key_vars].corr()
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm")
-    plt.title("Correlation Heatmap")
-    st.pyplot(plt)
+# ─────────────────────────────────────────────────────────────
+# Tab 1: Key Indicators
+# ─────────────────────────────────────────────────────────────
+with tab_kpi:
+    st.subheader(f"Key Indicators – Latest year ({filtered_data['date'].dt.year.max()})")
 
-# ── Main app ──────────────────────────────────────────────────────────
-def main():
-    st.title("EXPLORING LABOUR MARKET DYNAMICS: EMPLOYMENT BY MSIC IN MALAYSIA")
+    latest = filtered_data[filtered_data['date'].dt.year == filtered_data['date'].dt.year.max()]
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 EDA", "📈 Trends", "🤖 ML Results", "🚀 Prediction", "ℹ️ About"
-    ])
+    if not latest.empty:
+        tot_emp = latest['employment'].sum()
+        tot_gdp = latest['gdp'].sum()
+        struc = latest[[
+            'employed_employee', 'employed_employer',
+            'employed_own_account', 'employed_unpaid_family'
+        ]].sum()
+        tot_workers = struc.sum() or 1
 
-    with st.spinner("Loading data and training models... Please wait"):
-        data = load_data()
-        X_train_sm, X_test_scaled, y_train_sm, y_test, encoder, scaler = preprocess_data(data)
-        trained_models = train_models(X_train_sm, y_train_sm)
-        results_df = evaluate_models(trained_models, X_test_scaled, y_test, encoder)
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total Employment", f"{tot_emp:,.0f}")
+        c2.metric("Total GDP", f"RM {tot_gdp:,.0f} mil")
+        c3.metric("% Employees", f"{struc['employed_employee']/tot_workers*100:.1f}%")
+        c4.metric("% Own-account", f"{struc['employed_own_account']/tot_workers*100:.1f}%")
+        c5.metric("% Employers", f"{struc['employed_employer']/tot_workers*100:.1f}%")
 
-        # Select best model (highest macro F1-score)
-        global best_model, fitted_scaler, fitted_encoder
-        best_row = results_df.loc[results_df['F1-Score (macro)'].idxmax()]
-        best_name = best_row['Model']
-        best_model = trained_models[best_name]
-        fitted_scaler = scaler
-        fitted_encoder = encoder
+    # Pie chart – Share of employment
+    emp_share = filtered_data.groupby('sector')['employment'].sum().reset_index()
+    fig_pie = px.pie(emp_share, values='employment', names='sector',
+                     title="Share of Total Employment by Sector", hole=0.4)
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-        st.session_state['results'] = results_df
-        st.session_state['best_model_name'] = best_name
+# ─────────────────────────────────────────────────────────────
+# Tab 2: Trends & EDA
+# ─────────────────────────────────────────────────────────────
+with tab_trends:
+    col1, col2 = st.columns(2)
 
-    with tab1:
-        st.header("Exploratory Data Analysis (EDA)")
-        plot_employment_distribution(data)
-        plot_scatter_gdp_vs_other(data)
-        plot_heatmap(data)
+    with col1:
+        fig_gdp = px.line(filtered_data, x='date', y='gdp', color='sector',
+                          title="GDP Trend Over Time by Sector")
+        st.plotly_chart(fig_gdp, use_container_width=True)
 
-    with tab2:
-        st.header("GDP Trends Over Time")
-        plot_gdp_trend_by_sector(data)
+    with col2:
+        emp_bar = filtered_data.groupby('sector')['employment'].sum().reset_index()
+        fig_bar = px.bar(emp_bar, x='sector', y='employment',
+                         title="Employment by Sector (Absolute)")
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-    with tab3:
-        st.header("Machine Learning Model Performance")
-        st.subheader(f"Best Model: **{st.session_state.get('best_model_name', 'N/A')}**")
-        st.dataframe(st.session_state['results'].style.format({
-            'Accuracy': '{:.4f}',
-            'MAE': '{:.4f}',
-            'RMSE': '{:.4f}',
-            'Precision (macro)': '{:.4f}',
-            'Recall (macro)': '{:.4f}',
-            'F1-Score (macro)': '{:.4f}'
-        }))
+# ─────────────────────────────────────────────────────────────
+# Tab 3: Sector Prediction
+# ─────────────────────────────────────────────────────────────
+with tab_predict:
+    st.subheader("Predict Dominant Sector")
 
-    with tab4:
-        st.header("Predict Employment Sector")
-        st.write("Enter economic values to predict the most likely sector.")
+    c1, c2, c3 = st.columns(3)
+    gdp_val = c1.number_input("GDP (million RM)", 0.0, 500000.0, 50000.0)
+    emp_val = c2.number_input("Total Employment", 1, 1000000, 100000)
+    hours_val = c3.number_input("Total Working Hours", 1.0, 50000000.0, 2000000.0)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            gdp_input = st.number_input("GDP (Billion USD)", min_value=0.0, value=500.0, step=10.0)
-        with col2:
-            emp_input = st.number_input("Total Employment", min_value=1, value=500000, step=10000)
-        with col3:
-            hours_input = st.number_input("Total Working Hours", min_value=1.0, value=40.0 * 500000, step=100000.0)
+    if st.button("Predict"):
+        feat_dict = {
+            'gdp': gdp_val,
+            'employment': emp_val,
+            'hours': hours_val,
+            'output_hour': gdp_val / hours_val if hours_val > 0 else 0,
+            'output_employment': gdp_val / emp_val if emp_val > 0 else 0,
+            'employed_employer': emp_val * 0.10,
+            'employed_employee': emp_val * 0.70,
+            'employed_own_account': emp_val * 0.15,
+            'employed_unpaid_family': emp_val * 0.05
+        }
 
-        if st.button("🔮 Predict Sector", type="primary"):
-            with st.spinner("Predicting..."):
-                result = make_prediction(gdp_input, emp_input, hours_input)
-                st.success(f"Predicted Sector: **{result}**")
+        X_new = pd.DataFrame([feat_dict])
+        avail_features = X_new.columns.intersection(model_results['scaler'].feature_names_in_)
+        X_new_s = model_results['scaler'].transform(X_new[avail_features])
 
-    with tab5:
-        st.header("About This Project")
-        st.write("""
-        This dashboard uses machine learning to predict the dominant economic sector 
-        based on GDP, employment, and working hours.
-        
-        Models trained: XGBoost, Random Forest, Logistic Regression, SVM.
-        """)
+        pred_enc = model_results['best_model'].predict(X_new_s)[0]
+        pred_sector = model_results['encoder'].inverse_transform([pred_enc])[0]
 
-if __name__ == "__main__":
-    main()
+        try:
+            prob = model_results['best_model'].predict_proba(X_new_s)[0].max() * 100
+            st.success(f"**Predicted sector: {pred_sector}** ({prob:.1f}% confidence)")
+        except:
+            st.success(f"**Predicted sector: {pred_sector}**")
 
+# ─────────────────────────────────────────────────────────────
+# Tab 4: Model Performance
+# ─────────────────────────────────────────────────────────────
+with tab_model:
+    st.subheader("Model Performance – Detailed Evaluation")
 
+    df_metrics = model_results['metrics_df']
+
+    styled = df_metrics.style.format({
+        col: '{:.4f}' for col in df_metrics.columns if col != 'Model'
+    }).highlight_max(
+        subset=['Accuracy', 'F1-Score (macro)', 'Precision (macro)', 'Recall (macro)'],
+        color='#d4edda'
+    )
+
+    st.dataframe(styled, use_container_width=True)
+
+    # Bar comparison
+    melt = df_metrics.melt(id_vars='Model',
+                           value_vars=['Accuracy', 'F1-Score (macro)', 'Precision (macro)', 'Recall (macro)'],
+                           var_name='Metric', value_name='Score')
+
+    fig_bar = px.bar(melt, x='Model', y='Score', color='Metric', barmode='group',
+                     title="Model Comparison – Key Metrics")
+    fig_bar.update_layout(yaxis_range=[0, 1.05])
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    # Classification report for best model
+    st.markdown(f"### Classification Report – Best Model ({model_results['best_name']})")
+    y_true = model_results['y_test']
+    y_pred_best = model_results['predictions'][model_results['best_name']]
+
+    report = classification_report(y_true, y_pred_best,
+                                   target_names=model_results['encoder'].classes_,
+                                   output_dict=True, zero_division=0)
+
+    report_df = pd.DataFrame(report).transpose()
+    st.dataframe(report_df.style.format('{:.4f}'), use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────
+# Tab 5: Data Table
+# ─────────────────────────────────────────────────────────────
+with tab_data:
+    st.subheader("Filtered Data Table")
+    st.caption("Shows only rows matching current year range and selected sectors")
+
+    st.dataframe(filtered_data.sort_values(['date', 'sector']), use_container_width=True)
+
+    st.download_button(
+        "Download filtered data (CSV)",
+        filtered_data.to_csv(index=False).encode('utf-8'),
+        "filtered_malaysia_labour_data.csv",
+        "text/csv"
+    )
+
+st.caption("Dashboard • Updated January 13, 2026")
