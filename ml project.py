@@ -85,7 +85,7 @@ st.caption("📊 GDP | 🏭 Productivity | 💼 Work Hours | 👥 Labor Force")
 # ===============================
 @st.cache_data
 def load_data():
-    data = pd.read_csv(r"C:\Users\User\Desktop\ump\sem 5\ML\group project\clean_data.csv")  # Update the path to your dataset
+    data = pd.read_csv(r"clean_data.csv")  # Update the path to your dataset
     # Ensure 'date' column exists and handle it properly
     if 'date' in data.columns:
         data['date'] = pd.to_datetime(data['date'], errors='coerce')  # Coerce invalid dates to NaT
@@ -383,3 +383,4 @@ if tab == "📝 Prediction":
 # ===============================
 st.markdown("---")
 st.caption("💡 Streamlit Dashboard | Employment Sector Prediction | Machine Learning")
+
