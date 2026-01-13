@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
-import squarify
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -31,7 +30,7 @@ def load_data():
         df = pd.read_csv('clean_data.csv')
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
-        df = df[df['employment'] > 500].copy()  # remove percentage-like rows
+        df = df[df['employment'] > 500].copy()  # remove percentage rows
         df = df.drop_duplicates()
         df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
         return df
@@ -192,42 +191,19 @@ with tab_kpi:
 with tab_trends:
     st.subheader("Sector Productivity & Correlations")
 
-    # 1. Treemap + Pie + Bar combo: Share of Total Employment by Sector
-    sector_emp_total = filtered_data.groupby('sector')['employment'].sum().sort_values(ascending=False)
-    percentages = (sector_emp_total / sector_emp_total.sum() * 100).round(1)
+    # 1. Average Output per Worker by Sector (horizontal bar, ascending)
+    sector_worker_prod = filtered_data.groupby('sector')['output_employment'].mean().sort_values(ascending=True)
+    fig_worker = px.bar(
+        sector_worker_prod.reset_index(),
+        x='output_employment',
+        y='sector',
+        orientation='h',
+        title='Average Output per Worker by Sector',
+        labels={'output_employment': 'Output per Worker', 'sector': 'Sector'}
+    )
+    st.plotly_chart(fig_worker, use_container_width=True)
 
-    col_left, col_right = st.columns([2, 1])
-
-    with col_left:
-        # Treemap
-        fig_treemap, ax = plt.subplots(figsize=(10, 8))
-        squarify.plot(sizes=sector_emp_total, label=sector_emp_total.index,
-                      value=percentages.apply(lambda x: f'{x}%'), alpha=0.8,
-                      color=plt.cm.Blues(np.linspace(0.4, 0.9, len(sector_emp_total))))
-        plt.title('Share of Total Employment by Sector (Treemap)', fontsize=14)
-        plt.axis('off')
-        st.pyplot(fig_treemap)
-
-    with col_right:
-        # Pie + Horizontal Bar side by side (smaller)
-        fig_combo, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 8))
-
-        # Pie
-        ax1.pie(sector_emp_total, labels=sector_emp_total.index, autopct='%1.1f%%',
-                startangle=90, colors=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))))
-        ax1.set_title('Employment Share (%)')
-
-        # Horizontal Bar
-        ax2.barh(sector_emp_total.index, sector_emp_total.values,
-                 color=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))))
-        ax2.set_xlabel('Number of Employees')
-        ax2.set_title('Absolute Employment')
-        ax2.invert_yaxis()
-
-        plt.tight_layout()
-        st.pyplot(fig_combo)
-
-    # 2. Average Output per Hour by Sector
+    # 2. Average Output per Hour by Sector (vertical bar, descending)
     sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
     fig_hour = px.bar(
         sector_hour_prod.reset_index(),
@@ -290,9 +266,6 @@ with tab_trends:
         sns.heatmap(corr, annot=True, fmt=".2f", cmap="plasma", ax=ax)
         plt.title("Correlation Heatmap")
         st.pyplot(fig_heat)
-
-        st.markdown("**Correlation Matrix (numeric values):**")
-        st.dataframe(corr.style.format("{:.3f}"), use_container_width=True)
     else:
         st.info("Not enough variables for correlation heatmap.")
 
