@@ -157,33 +157,48 @@ tab_kpi, tab_trends, tab_model, tab_predict, tab_data = st.tabs([
 ])
 
 # ─────────────────────────────────────────────────────────────
-# Tab 1: Key Indicators
+# Tab 1: Key Indicators – NOW TOTALS ACROSS ALL YEARS IN FILTER
 # ─────────────────────────────────────────────────────────────
 with tab_kpi:
-    st.subheader(f"Key Indicators – Latest year in filter ({filtered_data['date'].dt.year.max()})")
+    st.subheader(f"Key Indicators – Entire Filtered Period ({year_range[0]}–{year_range[1]})")
 
-    latest_year = filtered_data['date'].dt.year.max()
-    latest = filtered_data[filtered_data['date'].dt.year == latest_year]
+    if not filtered_data.empty:
+        # Total sums across ALL years in the filter
+        total_emp = filtered_data['employment'].sum()
+        total_gdp = filtered_data['gdp'].sum()
 
-    if not latest.empty:
-        tot_emp = latest['employment'].sum()
-        tot_gdp = latest['gdp'].sum()
-        struc = latest[[
+        # Total employment structure across all years
+        struc = filtered_data[[
             'employed_employee', 'employed_employer',
             'employed_own_account', 'employed_unpaid_family'
         ]].sum()
-        tot_workers = struc.sum() or 1
 
+        total_workers = struc.sum() or 1  # avoid division by zero
+
+        # Weighted average percentages
+        pct_employee = (struc['employed_employee'] / total_workers * 100).round(1)
+        pct_own = (struc['employed_own_account'] / total_workers * 100).round(1)
+        pct_employer = (struc['employed_employer'] / total_workers * 100).round(1)
+
+        # Display KPIs
         c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Total Employment", f"{tot_emp:,.0f}")
-        c2.metric("Total GDP", f"RM {tot_gdp:,.0f} mil")
-        c3.metric("% Employees", f"{struc['employed_employee']/tot_workers*100:.1f}%")
-        c4.metric("% Own-account", f"{struc['employed_own_account']/tot_workers*100:.1f}%")
-        c5.metric("% Employers", f"{struc['employed_employer']/tot_workers*100:.1f}%")
+        c1.metric("Total Employment", f"{total_emp:,.0f}", help="Sum of all years in filter")
+        c2.metric("Total GDP", f"RM {total_gdp:,.0f} mil", help="Sum of all years in filter")
+        c3.metric("% Employees", f"{pct_employee}%", help="Weighted across entire period")
+        c4.metric("% Own-account", f"{pct_own}%", help="Weighted across entire period")
+        c5.metric("% Employers", f"{pct_employer}%", help="Weighted across entire period")
 
+        # Optional: show number of years included
+        years_in_filter = sorted(filtered_data['date'].dt.year.unique())
+        st.caption(f"Includes data from {len(years_in_filter)} years: {', '.join(map(str, years_in_filter))}")
+
+    else:
+        st.info("No data in selected range.")
+
+    # Pie chart – total share across ALL filtered years
     emp_share = filtered_data.groupby('sector')['employment'].sum().reset_index()
     fig_pie = px.pie(emp_share, values='employment', names='sector',
-                     title="Share of Total Employment by Sector", hole=0.4)
+                     title="Total Employment Share by Sector (All Years in Filter)", hole=0.4)
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
