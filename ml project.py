@@ -28,20 +28,11 @@ st.set_page_config(page_title="Malaysia Labour Market Dashboard", layout="wide")
 def load_data():
     try:
         df = pd.read_csv('clean_data.csv')
-        
-        # Force date parsing
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
-        
-        # Remove percentage-like rows (employment ≈ 100 or very small)
         df = df[df['employment'] > 500].copy()
-        
-        # Remove duplicates
         df = df.drop_duplicates()
-        
-        # Keep one row per date-sector (most complete)
         df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
-        
         return df
     except FileNotFoundError:
         st.error("clean_data.csv not found.")
@@ -50,19 +41,17 @@ def load_data():
 data = load_data()
 
 # ─────────────────────────────────────────────────────────────
-# Sidebar – Debug years + filters
+# Sidebar filters + debug years
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
     
-    # Debug: show available years
     st.caption("Available years in dataset:")
-    year_counts = data['date'].dt.year.value_counts().sort_index()
-    st.write(year_counts)
+    st.write(data['date'].dt.year.value_counts().sort_index())
     
     min_year = int(data['date'].dt.year.min())
     max_year = int(data['date'].dt.year.max())
-    year_range = st.slider("Year Range", min_year, max_year, (2018, 2020))  # default 2018-2020
+    year_range = st.slider("Year Range", min_year, max_year, (2016, 2022))
 
     all_sectors = sorted(data['sector'].unique())
     selected_sectors = st.multiselect("Sectors", all_sectors, default=all_sectors)
@@ -73,7 +62,7 @@ filtered_data = data[
 ].copy()
 
 if filtered_data.empty:
-    st.warning(f"No data found for {year_range[0]}–{year_range[1]}. Check available years in sidebar.")
+    st.warning(f"No data for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
@@ -153,16 +142,16 @@ model_results = train_and_evaluate()
 # Main title
 # ─────────────────────────────────────────────────────────────
 st.title("Malaysia Labour Market Dashboard – MSIC Sectors")
-st.caption("GDP, Employment & Sector Classification (2016–2022)")
+st.caption("GDP, Employment & Sector Classification Analysis")
 
 # ─────────────────────────────────────────────────────────────
-# Tabs
+# Tabs – Prediction now after Performance
 # ─────────────────────────────────────────────────────────────
-tab_kpi, tab_trends, tab_predict, tab_model, tab_data = st.tabs([
+tab_kpi, tab_trends, tab_model, tab_predict, tab_data = st.tabs([
     "📊 Key Indicators",
     "📈 Trends & EDA",
-    "🔮 Sector Prediction",
     "📊 Model Performance",
+    "🔮 Sector Prediction",
     "📋 Data Table"
 ])
 
@@ -214,44 +203,7 @@ with tab_trends:
         st.plotly_chart(fig_bar, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 3: Sector Prediction
-# ─────────────────────────────────────────────────────────────
-with tab_predict:
-    st.subheader("Predict Dominant Sector")
-
-    c1, c2, c3 = st.columns(3)
-    gdp_val = c1.number_input("GDP (million RM)", 0.0, 500000.0, 50000.0)
-    emp_val = c2.number_input("Total Employment", 1, 1000000, 100000)
-    hours_val = c3.number_input("Total Working Hours", 1.0, 50000000.0, 2000000.0)
-
-    if st.button("Predict"):
-        feat_dict = {
-            'gdp': gdp_val,
-            'employment': emp_val,
-            'hours': hours_val,
-            'output_hour': gdp_val / hours_val if hours_val > 0 else 0,
-            'output_employment': gdp_val / emp_val if emp_val > 0 else 0,
-            'employed_employer': emp_val * 0.10,
-            'employed_employee': emp_val * 0.70,
-            'employed_own_account': emp_val * 0.15,
-            'employed_unpaid_family': emp_val * 0.05
-        }
-
-        X_new = pd.DataFrame([feat_dict])
-        avail_features = X_new.columns.intersection(model_results['scaler'].feature_names_in_)
-        X_new_s = model_results['scaler'].transform(X_new[avail_features])
-
-        pred_enc = model_results['best_model'].predict(X_new_s)[0]
-        pred_sector = model_results['encoder'].inverse_transform([pred_enc])[0]
-
-        try:
-            prob = model_results['best_model'].predict_proba(X_new_s)[0].max() * 100
-            st.success(f"**Predicted sector: {pred_sector}** ({prob:.1f}% confidence)")
-        except:
-            st.success(f"**Predicted sector: {pred_sector}**")
-
-# ─────────────────────────────────────────────────────────────
-# Tab 4: Model Performance
+# Tab 3: Model Performance
 # ─────────────────────────────────────────────────────────────
 with tab_model:
     st.subheader("Model Performance – Detailed Evaluation")
@@ -286,6 +238,44 @@ with tab_model:
 
     report_df = pd.DataFrame(report).transpose()
     st.dataframe(report_df.style.format('{:.4f}'), use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────
+# Tab 4: Sector Prediction (now after Performance)
+# ─────────────────────────────────────────────────────────────
+with tab_predict:
+    st.subheader("Predict Dominant Sector")
+    st.caption("Uses the best model from the Performance tab above")
+
+    c1, c2, c3 = st.columns(3)
+    gdp_val = c1.number_input("GDP (million RM)", 0.0, 500000.0, 50000.0)
+    emp_val = c2.number_input("Total Employment", 1, 1000000, 100000)
+    hours_val = c3.number_input("Total Working Hours", 1.0, 50000000.0, 2000000.0)
+
+    if st.button("Predict"):
+        feat_dict = {
+            'gdp': gdp_val,
+            'employment': emp_val,
+            'hours': hours_val,
+            'output_hour': gdp_val / hours_val if hours_val > 0 else 0,
+            'output_employment': gdp_val / emp_val if emp_val > 0 else 0,
+            'employed_employer': emp_val * 0.10,
+            'employed_employee': emp_val * 0.70,
+            'employed_own_account': emp_val * 0.15,
+            'employed_unpaid_family': emp_val * 0.05
+        }
+
+        X_new = pd.DataFrame([feat_dict])
+        avail_features = X_new.columns.intersection(model_results['scaler'].feature_names_in_)
+        X_new_s = model_results['scaler'].transform(X_new[avail_features])
+
+        pred_enc = model_results['best_model'].predict(X_new_s)[0]
+        pred_sector = model_results['encoder'].inverse_transform([pred_enc])[0]
+
+        try:
+            prob = model_results['best_model'].predict_proba(X_new_s)[0].max() * 100
+            st.success(f"**Predicted sector: {pred_sector}** ({prob:.1f}% confidence)")
+        except:
+            st.success(f"**Predicted sector: {pred_sector}**")
 
 # ─────────────────────────────────────────────────────────────
 # Tab 5: Data Table
