@@ -42,14 +42,11 @@ def load_data():
 data = load_data()
 
 # ─────────────────────────────────────────────────────────────
-# Sidebar filters + debug info
+# Sidebar filters (no debug output anymore)
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
-    
-    st.caption("Available years in dataset (row counts per year):")
-    st.write(data['date'].dt.year.value_counts().sort_index())
-    
+
     min_year = int(data['date'].dt.year.min())
     max_year = int(data['date'].dt.year.max())
     year_range = st.slider("Year Range", min_year, max_year, (2016, 2022))
@@ -63,7 +60,7 @@ filtered_data = data[
 ].copy()
 
 if filtered_data.empty:
-    st.warning(f"No data found for {year_range[0]}–{year_range[1]}. Check available years above.")
+    st.warning(f"No data found for {year_range[0]}–{year_range[1]}.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
