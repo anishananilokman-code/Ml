@@ -30,7 +30,7 @@ def load_data():
         df = pd.read_csv('clean_data.csv')
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
-        df = df[df['employment'] > 500].copy()
+        df = df[df['employment'] > 500].copy()  # remove percentage rows
         df = df.drop_duplicates()
         df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
         return df
@@ -145,7 +145,7 @@ st.title("Malaysia Labour Market Dashboard – MSIC Sectors")
 st.caption("GDP, Employment & Sector Classification Analysis")
 
 # ─────────────────────────────────────────────────────────────
-# Tabs – Prediction now after Performance
+# Tabs
 # ─────────────────────────────────────────────────────────────
 tab_kpi, tab_trends, tab_model, tab_predict, tab_data = st.tabs([
     "📊 Key Indicators",
@@ -186,21 +186,88 @@ with tab_kpi:
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 2: Trends & EDA
+# Tab 2: Trends & EDA (with your requested charts)
 # ─────────────────────────────────────────────────────────────
 with tab_trends:
-    col1, col2 = st.columns(2)
+    st.subheader("Sector Productivity & Correlations")
 
-    with col1:
-        fig_gdp = px.line(filtered_data, x='date', y='gdp', color='sector',
-                          title="GDP Trend Over Time by Sector")
-        st.plotly_chart(fig_gdp, use_container_width=True)
+    # 1. Average Output per Worker by Sector (horizontal bar, ascending)
+    sector_worker_prod = filtered_data.groupby('sector')['output_employment'].mean().sort_values(ascending=True)
+    fig_worker = px.bar(
+        sector_worker_prod.reset_index(),
+        x='output_employment',
+        y='sector',
+        orientation='h',
+        title='Average Output per Worker by Sector',
+        labels={'output_employment': 'Output per Worker', 'sector': 'Sector'}
+    )
+    st.plotly_chart(fig_worker, use_container_width=True)
 
-    with col2:
-        emp_bar = filtered_data.groupby('sector')['employment'].sum().reset_index()
-        fig_bar = px.bar(emp_bar, x='sector', y='employment',
-                         title="Employment by Sector (Absolute)")
-        st.plotly_chart(fig_bar, use_container_width=True)
+    # 2. Average Output per Hour by Sector (vertical bar, descending)
+    sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
+    fig_hour = px.bar(
+        sector_hour_prod.reset_index(),
+        x='sector',
+        y='output_hour',
+        title='Average Output per Hour by Sector',
+        labels={'output_hour': 'Output per Hour', 'sector': 'Sector'}
+    )
+    st.plotly_chart(fig_hour, use_container_width=True)
+
+    # 3. 4 Scatter plots with linear fit
+    st.subheader("GDP vs Key Variables")
+    fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
+
+    # GDP vs Employment
+    axes[0].scatter(filtered_data['gdp'], filtered_data['employment'], color='steelblue', alpha=0.6)
+    z = np.polyfit(filtered_data['gdp'], filtered_data['employment'], 1)
+    p = np.poly1d(z)
+    axes[0].plot(filtered_data['gdp'], p(filtered_data['gdp']), color='darkred', linestyle='--')
+    axes[0].set_xlabel('GDP')
+    axes[0].set_ylabel('Employment')
+    axes[0].set_title('GDP vs Employment')
+    axes[0].grid(True, alpha=0.3)
+
+    # GDP vs Total Working Hours
+    axes[1].scatter(filtered_data['gdp'], filtered_data['hours'], color='green', alpha=0.6)
+    z = np.polyfit(filtered_data['gdp'], filtered_data['hours'], 1)
+    p = np.poly1d(z)
+    axes[1].plot(filtered_data['gdp'], p(filtered_data['gdp']), color='darkred', linestyle='--')
+    axes[1].set_xlabel('GDP')
+    axes[1].set_ylabel('Total Working Hours')
+    axes[1].set_title('GDP vs Total Working Hours')
+    axes[1].grid(True, alpha=0.3)
+
+    # GDP vs Output per Hour
+    axes[2].scatter(filtered_data['gdp'], filtered_data['output_hour'], color='orange', alpha=0.6)
+    axes[2].set_xlabel('GDP')
+    axes[2].set_ylabel('Output per Hour')
+    axes[2].set_title('GDP vs Output per Hour')
+    axes[2].grid(True, alpha=0.3)
+
+    # GDP vs Output per Employee
+    axes[3].scatter(filtered_data['gdp'], filtered_data['output_employment'], color='purple', alpha=0.6)
+    axes[3].set_xlabel('GDP')
+    axes[3].set_ylabel('Output per Employee')
+    axes[3].set_title('GDP vs Output per Employee')
+    axes[3].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    st.pyplot(fig_scatter)
+
+    # 4. Correlation Heatmap
+    st.subheader("Correlation Heatmap")
+    key_vars = ['gdp', 'employment', 'hours', 'output_hour', 'output_employment']
+    key_vars = [v for v in key_vars if v in filtered_data.columns]
+
+    if len(key_vars) >= 2:
+        corr = filtered_data[key_vars].corr()
+        fig_heat, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(corr, annot=True, fmt=".2f", cmap="plasma", ax=ax)
+        plt.title("Correlation Heatmap")
+        st.pyplot(fig_heat)
+    else:
+        st.info("Not enough variables for correlation heatmap.")
 
 # ─────────────────────────────────────────────────────────────
 # Tab 3: Model Performance
@@ -240,7 +307,7 @@ with tab_model:
     st.dataframe(report_df.style.format('{:.4f}'), use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 4: Sector Prediction (now after Performance)
+# Tab 4: Sector Prediction
 # ─────────────────────────────────────────────────────────────
 with tab_predict:
     st.subheader("Predict Dominant Sector")
@@ -293,4 +360,4 @@ with tab_data:
         "text/csv"
     )
 
-st.caption("Dashboard • Updated January 13, 2026")
+st.caption("Dashboard • Updated January 14, 2026")
