@@ -42,32 +42,29 @@ def load_data():
 data = load_data()
 
 # ─────────────────────────────────────────────────────────────
-# Sidebar filters + checkbox for full data on charts
+# Sidebar filters + debug info
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
-
+    
+    st.caption("Available years in dataset (row counts per year):")
+    st.write(data['date'].dt.year.value_counts().sort_index())
+    
     min_year = int(data['date'].dt.year.min())
     max_year = int(data['date'].dt.year.max())
-    year_range = st.slider("Year Range", min_year, max_year, (min_year, max_year))
+    year_range = st.slider("Year Range", min_year, max_year, (2016, 2022))
 
     all_sectors = sorted(data['sector'].unique())
     selected_sectors = st.multiselect("Sectors", all_sectors, default=all_sectors)
-
-    # Checkbox to use full data for charts (ignore year/sector filter for EDA)
-    use_full_for_charts = st.checkbox("Use full dataset for charts (ignore year/sector filters)", value=False)
 
 filtered_data = data[
     (data['date'].dt.year.between(year_range[0], year_range[1])) &
     (data['sector'].isin(selected_sectors))
 ].copy()
 
-if filtered_data.empty and not use_full_for_charts:
-    st.warning(f"No data found for {year_range[0]}–{year_range[1]}. Try wider range or check data.")
+if filtered_data.empty:
+    st.warning(f"No data found for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
-
-# Data for charts: full or filtered based on checkbox
-chart_data = data if use_full_for_charts else filtered_data
 
 # ─────────────────────────────────────────────────────────────
 # Train & evaluate models
@@ -166,20 +163,24 @@ with tab_kpi:
     st.subheader(f"Key Indicators – Entire Filtered Period ({year_range[0]}–{year_range[1]})")
 
     if not filtered_data.empty:
+        # Total sums across ALL rows in the filter (all years & sectors)
         total_emp = filtered_data['employment'].sum()
         total_gdp = filtered_data['gdp'].sum()
 
+        # Total structure across all rows
         struc = filtered_data[[
             'employed_employee', 'employed_employer',
             'employed_own_account', 'employed_unpaid_family'
         ]].sum()
 
-        total_workers = struc.sum() or 1
+        total_workers = struc.sum() or 1  # avoid division by zero
 
+        # Weighted average percentages across the entire filtered period
         pct_employee = (struc['employed_employee'] / total_workers * 100).round(1)
         pct_own = (struc['employed_own_account'] / total_workers * 100).round(1)
         pct_employer = (struc['employed_employer'] / total_workers * 100).round(1)
 
+        # Display KPIs
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Total Employment", f"{total_emp:,.0f}", help="Sum across all years in filter")
         c2.metric("Total GDP", f"RM {total_gdp:,.0f} mil", help="Sum across all years in filter")
@@ -187,25 +188,27 @@ with tab_kpi:
         c4.metric("% Own-account", f"{pct_own}%", help="Weighted average across filtered period")
         c5.metric("% Employers", f"{pct_employer}%", help="Weighted average across filtered period")
 
+        # Show how many years are included
         years_included = sorted(filtered_data['date'].dt.year.unique())
         st.caption(f"Data aggregated from {len(years_included)} years: {', '.join(map(str, years_included))}")
 
     else:
         st.info("No data in selected range.")
 
+    # Pie chart – total share across ALL filtered years
     emp_share = filtered_data.groupby('sector')['employment'].sum().reset_index()
     fig_pie = px.pie(emp_share, values='employment', names='sector',
                      title="Total Employment Share by Sector (All Years in Filter)", hole=0.4)
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 2: Trends & EDA – Uses chart_data (full or filtered based on checkbox)
+# Tab 2: Trends & EDA (with your requested charts)
 # ─────────────────────────────────────────────────────────────
 with tab_trends:
     st.subheader("Sector Productivity & Correlations")
 
-    # Average Output per Hour by Sector
-    sector_hour_prod = chart_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
+    # Average Output per Hour by Sector (vertical bar, sorted descending)
+    sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
     fig_hour = px.bar(
         sector_hour_prod.reset_index(),
         x='sector',
@@ -219,31 +222,35 @@ with tab_trends:
     st.subheader("GDP vs Key Variables")
     fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
 
-    axes[0].scatter(chart_data['gdp'], chart_data['employment'], color='steelblue', alpha=0.6)
-    z = np.polyfit(chart_data['gdp'], chart_data['employment'], 1)
+    # GDP vs Employment
+    axes[0].scatter(filtered_data['gdp'], filtered_data['employment'], color='steelblue', alpha=0.6)
+    z = np.polyfit(filtered_data['gdp'], filtered_data['employment'], 1)
     p = np.poly1d(z)
-    axes[0].plot(chart_data['gdp'], p(chart_data['gdp']), color='darkred', linestyle='--')
+    axes[0].plot(filtered_data['gdp'], p(filtered_data['gdp']), color='darkred', linestyle='--')
     axes[0].set_xlabel('GDP')
     axes[0].set_ylabel('Employment')
     axes[0].set_title('GDP vs Employment')
     axes[0].grid(True, alpha=0.3)
 
-    axes[1].scatter(chart_data['gdp'], chart_data['hours'], color='green', alpha=0.6)
-    z = np.polyfit(chart_data['gdp'], chart_data['hours'], 1)
+    # GDP vs Total Working Hours
+    axes[1].scatter(filtered_data['gdp'], filtered_data['hours'], color='green', alpha=0.6)
+    z = np.polyfit(filtered_data['gdp'], filtered_data['hours'], 1)
     p = np.poly1d(z)
-    axes[1].plot(chart_data['gdp'], p(chart_data['gdp']), color='darkred', linestyle='--')
+    axes[1].plot(filtered_data['gdp'], p(filtered_data['gdp']), color='darkred', linestyle='--')
     axes[1].set_xlabel('GDP')
     axes[1].set_ylabel('Total Working Hours')
     axes[1].set_title('GDP vs Total Working Hours')
     axes[1].grid(True, alpha=0.3)
 
-    axes[2].scatter(chart_data['gdp'], chart_data['output_hour'], color='orange', alpha=0.6)
+    # GDP vs Output per Hour
+    axes[2].scatter(filtered_data['gdp'], filtered_data['output_hour'], color='orange', alpha=0.6)
     axes[2].set_xlabel('GDP')
     axes[2].set_ylabel('Output per Hour')
     axes[2].set_title('GDP vs Output per Hour')
     axes[2].grid(True, alpha=0.3)
 
-    axes[3].scatter(chart_data['gdp'], chart_data['output_employment'], color='purple', alpha=0.6)
+    # GDP vs Output per Employee
+    axes[3].scatter(filtered_data['gdp'], filtered_data['output_employment'], color='purple', alpha=0.6)
     axes[3].set_xlabel('GDP')
     axes[3].set_ylabel('Output per Employee')
     axes[3].set_title('GDP vs Output per Employee')
@@ -255,10 +262,10 @@ with tab_trends:
     # Correlation Heatmap
     st.subheader("Correlation Heatmap")
     key_vars = ['gdp', 'employment', 'hours', 'output_hour', 'output_employment']
-    key_vars = [v for v in key_vars if v in chart_data.columns]
+    key_vars = [v for v in key_vars if v in filtered_data.columns]
 
     if len(key_vars) >= 2:
-        corr = chart_data[key_vars].corr()
+        corr = filtered_data[key_vars].corr()
         fig_heat, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(corr, annot=True, fmt=".2f", cmap="plasma", ax=ax)
         plt.title("Correlation Heatmap")
