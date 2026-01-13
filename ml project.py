@@ -65,7 +65,7 @@ if filtered_data.empty:
     st.warning(f"No data for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
 
-# Debug: filtered data info
+# Debug: filtered info
 st.sidebar.caption(f"Filtered rows: {len(filtered_data)}")
 st.sidebar.write("Years in filter:")
 st.sidebar.write(filtered_data['date'].dt.year.value_counts().sort_index())
@@ -197,7 +197,7 @@ with tab_kpi:
 with tab_trends:
     st.subheader("Employment Share & Productivity")
 
-    # Pie + Horizontal Bar combo (no treemap)
+    # Pie + Horizontal Bar combo (matching notebook exactly)
     sector_emp_total = filtered_data.groupby('sector')['employment'].sum().sort_values(ascending=False)
     percentages = (sector_emp_total / sector_emp_total.sum() * 100).round(1)
 
@@ -219,7 +219,7 @@ with tab_trends:
             wedgeprops={'edgecolor': 'white', 'linewidth': 1.5, 'alpha': 0.9}
         )
 
-        # Improve text
+        # Improve text appearance
         for text in texts:
             text.set_fontsize(10)
             text.set_fontweight('bold')
@@ -234,16 +234,18 @@ with tab_trends:
     with col_right:
         # Horizontal Bar
         fig_bar, ax2 = plt.subplots(figsize=(6, 8))
-        bars = ax2.barh(sector_emp_total.index, sector_emp_total.values,
+        bars = ax2.barh(range(len(sector_emp_total)), sector_emp_total.values,
                         color=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))),
                         edgecolor='white', linewidth=1)
 
+        ax2.set_yticks(range(len(sector_emp_total)))
+        ax2.set_yticklabels(sector_emp_total.index)
+        ax2.invert_yaxis()
         ax2.set_xlabel('Number of Employees', fontsize=12, fontweight='bold')
         ax2.set_title('Employment by Sector (Absolute Values)', fontsize=14, fontweight='bold')
-        ax2.invert_yaxis()
 
-        # Value labels
-        for bar in bars:
+        # Add value labels on bars
+        for i, bar in enumerate(bars):
             width = bar.get_width()
             ax2.text(width + (max(sector_emp_total.values) * 0.01),
                      bar.get_y() + bar.get_height()/2,
@@ -266,7 +268,7 @@ with tab_trends:
     )
     st.plotly_chart(fig_hour, use_container_width=True)
 
-    # 4 Scatter plots
+    # 4 Scatter plots with linear fit
     st.subheader("GDP vs Key Variables (All data in range)")
     fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
 
