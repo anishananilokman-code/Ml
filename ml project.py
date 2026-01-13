@@ -42,12 +42,12 @@ def load_data():
 data = load_data()
 
 # ─────────────────────────────────────────────────────────────
-# Sidebar filters + debug years
+# Sidebar filters + debug info
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Filters")
     
-    st.caption("Available years in dataset:")
+    st.caption("Available years in dataset (row counts per year):")
     st.write(data['date'].dt.year.value_counts().sort_index())
     
     min_year = int(data['date'].dt.year.min())
@@ -63,7 +63,7 @@ filtered_data = data[
 ].copy()
 
 if filtered_data.empty:
-    st.warning(f"No data for {year_range[0]}–{year_range[1]}. Check available years above.")
+    st.warning(f"No data found for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
@@ -157,17 +157,17 @@ tab_kpi, tab_trends, tab_model, tab_predict, tab_data = st.tabs([
 ])
 
 # ─────────────────────────────────────────────────────────────
-# Tab 1: Key Indicators – NOW TOTALS ACROSS ALL YEARS IN FILTER
+# Tab 1: Key Indicators – Aggregates across ALL years in filter
 # ─────────────────────────────────────────────────────────────
 with tab_kpi:
     st.subheader(f"Key Indicators – Entire Filtered Period ({year_range[0]}–{year_range[1]})")
 
     if not filtered_data.empty:
-        # Total sums across ALL years in the filter
+        # Total sums across ALL rows in the filter (all years & sectors)
         total_emp = filtered_data['employment'].sum()
         total_gdp = filtered_data['gdp'].sum()
 
-        # Total employment structure across all years
+        # Total structure across all rows
         struc = filtered_data[[
             'employed_employee', 'employed_employer',
             'employed_own_account', 'employed_unpaid_family'
@@ -175,22 +175,22 @@ with tab_kpi:
 
         total_workers = struc.sum() or 1  # avoid division by zero
 
-        # Weighted average percentages
+        # Weighted average percentages across the entire filtered period
         pct_employee = (struc['employed_employee'] / total_workers * 100).round(1)
         pct_own = (struc['employed_own_account'] / total_workers * 100).round(1)
         pct_employer = (struc['employed_employer'] / total_workers * 100).round(1)
 
         # Display KPIs
         c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Total Employment", f"{total_emp:,.0f}", help="Sum of all years in filter")
-        c2.metric("Total GDP", f"RM {total_gdp:,.0f} mil", help="Sum of all years in filter")
-        c3.metric("% Employees", f"{pct_employee}%", help="Weighted across entire period")
-        c4.metric("% Own-account", f"{pct_own}%", help="Weighted across entire period")
-        c5.metric("% Employers", f"{pct_employer}%", help="Weighted across entire period")
+        c1.metric("Total Employment", f"{total_emp:,.0f}", help="Sum across all years in filter")
+        c2.metric("Total GDP", f"RM {total_gdp:,.0f} mil", help="Sum across all years in filter")
+        c3.metric("% Employees", f"{pct_employee}%", help="Weighted average across filtered period")
+        c4.metric("% Own-account", f"{pct_own}%", help="Weighted average across filtered period")
+        c5.metric("% Employers", f"{pct_employer}%", help="Weighted average across filtered period")
 
-        # Optional: show number of years included
-        years_in_filter = sorted(filtered_data['date'].dt.year.unique())
-        st.caption(f"Includes data from {len(years_in_filter)} years: {', '.join(map(str, years_in_filter))}")
+        # Show how many years are included
+        years_included = sorted(filtered_data['date'].dt.year.unique())
+        st.caption(f"Data aggregated from {len(years_included)} years: {', '.join(map(str, years_included))}")
 
     else:
         st.info("No data in selected range.")
@@ -207,42 +207,7 @@ with tab_kpi:
 with tab_trends:
     st.subheader("Sector Productivity & Correlations")
 
-    # 1. Treemap + Pie + Bar combo: Share of Total Employment by Sector
-    sector_emp_total = filtered_data.groupby('sector')['employment'].sum().sort_values(ascending=False)
-    percentages = (sector_emp_total / sector_emp_total.sum() * 100).round(1)
-
-    col_left, col_right = st.columns([2, 1])
-
-    with col_left:
-        # Treemap
-        fig_treemap, ax = plt.subplots(figsize=(10, 8))
-        squarify.plot(sizes=sector_emp_total, label=sector_emp_total.index,
-                      value=percentages.apply(lambda x: f'{x}%'), alpha=0.8,
-                      color=plt.cm.Blues(np.linspace(0.4, 0.9, len(sector_emp_total))))
-        plt.title('Share of Total Employment by Sector (Treemap)', fontsize=14)
-        plt.axis('off')
-        st.pyplot(fig_treemap)
-
-    with col_right:
-        # Pie + Horizontal Bar side by side (smaller)
-        fig_combo, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 8))
-
-        # Pie
-        ax1.pie(sector_emp_total, labels=sector_emp_total.index, autopct='%1.1f%%',
-                startangle=90, colors=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))))
-        ax1.set_title('Employment Share (%)')
-
-        # Horizontal Bar
-        ax2.barh(sector_emp_total.index, sector_emp_total.values,
-                 color=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))))
-        ax2.set_xlabel('Number of Employees')
-        ax2.set_title('Absolute Employment')
-        ax2.invert_yaxis()
-
-        plt.tight_layout()
-        st.pyplot(fig_combo)
-
-    # 2. Average Output per Hour by Sector
+    # Average Output per Hour by Sector (vertical bar, sorted descending)
     sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
     fig_hour = px.bar(
         sector_hour_prod.reset_index(),
@@ -253,7 +218,7 @@ with tab_trends:
     )
     st.plotly_chart(fig_hour, use_container_width=True)
 
-    # 3. 4 Scatter plots with linear fit
+    # 4 Scatter plots with linear fit
     st.subheader("GDP vs Key Variables")
     fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
 
@@ -294,7 +259,7 @@ with tab_trends:
     plt.tight_layout()
     st.pyplot(fig_scatter)
 
-    # 4. Correlation Heatmap
+    # Correlation Heatmap
     st.subheader("Correlation Heatmap")
     key_vars = ['gdp', 'employment', 'hours', 'output_hour', 'output_employment']
     key_vars = [v for v in key_vars if v in filtered_data.columns]
