@@ -30,7 +30,7 @@ def load_data():
         df = pd.read_csv('clean_data.csv')
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
-        df = df[df['employed'] > 500].copy()  # guna 'employed' macam notebook
+        df = df[df['employed'] > 500].copy()  # use 'employed' (notebook column)
         df = df.drop_duplicates()
         df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
         return df
@@ -65,13 +65,13 @@ if filtered_data.empty:
     st.warning(f"No data for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
 
-# Debug: filtered info (untuk semak aggregation betul)
+# Debug: check filtered data
 st.sidebar.caption(f"Filtered rows: {len(filtered_data)}")
 st.sidebar.write("Years in filter:")
 st.sidebar.write(filtered_data['date'].dt.year.value_counts().sort_index())
 
 # ─────────────────────────────────────────────────────────────
-# Train & evaluate models (kekal)
+# Train & evaluate models
 # ─────────────────────────────────────────────────────────────
 @st.cache_resource
 def train_and_evaluate():
@@ -161,7 +161,7 @@ tab_kpi, tab_trends, tab_model, tab_predict, tab_data = st.tabs([
 ])
 
 # ─────────────────────────────────────────────────────────────
-# Tab 1: Key Indicators (kekal)
+# Tab 1: Key Indicators
 # ─────────────────────────────────────────────────────────────
 with tab_kpi:
     st.subheader(f"Key Indicators – Latest year in filter ({filtered_data['date'].dt.year.max()})")
@@ -192,19 +192,19 @@ with tab_kpi:
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 2: Trends & EDA (pie + bar exact match notebook)
+# Tab 2: Trends & EDA (now matches your notebook exactly)
 # ─────────────────────────────────────────────────────────────
 with tab_trends:
     st.subheader("Employment Share & Productivity")
 
-    # Pie + Horizontal Bar combo (ikut notebook 100%)
+    # Pie + Horizontal Bar combo (exact match to notebook)
     sector_emp_total = filtered_data.groupby('sector')['employed'].sum().sort_values(ascending=False)
     percentages = (sector_emp_total / sector_emp_total.sum() * 100).round(1)
 
     col_left, col_right = st.columns([3, 2])
 
     with col_left:
-        # Pie chart (sama seperti notebook)
+        # Pie chart (matching notebook style)
         fig_pie, ax1 = plt.subplots(figsize=(8, 8))
         explode = [0.05 if pct < 5 else 0 for pct in percentages]
         wedges, texts, autotexts = ax1.pie(
@@ -219,7 +219,7 @@ with tab_trends:
             wedgeprops={'edgecolor': 'white', 'linewidth': 1.5, 'alpha': 0.9}
         )
 
-        # Improve text (sama seperti notebook)
+        # Improve text
         for text in texts:
             text.set_fontsize(10)
             text.set_fontweight('bold')
@@ -232,7 +232,7 @@ with tab_trends:
         st.pyplot(fig_pie)
 
     with col_right:
-        # Horizontal Bar (sama seperti notebook)
+        # Horizontal Bar (matching notebook style)
         fig_bar, ax2 = plt.subplots(figsize=(6, 8))
         bars = ax2.barh(range(len(sector_emp_total)), sector_emp_total.values,
                         color=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))),
@@ -244,7 +244,7 @@ with tab_trends:
         ax2.set_xlabel('Number of Employees', fontsize=12, fontweight='bold')
         ax2.set_title('Employment by Sector (Absolute Values)', fontsize=14, fontweight='bold')
 
-        # Add value labels on bars (sama seperti notebook)
+        # Add value labels on bars
         for i, bar in enumerate(bars):
             width = bar.get_width()
             ax2.text(width + (max(sector_emp_total.values) * 0.01),
@@ -257,7 +257,7 @@ with tab_trends:
         plt.tight_layout()
         st.pyplot(fig_bar)
 
-    # Average Output per Hour by Sector (bonus, kekal)
+    # Average Output per Hour by Sector (kept for completeness)
     sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
     fig_hour = px.bar(
         sector_hour_prod.reset_index(),
@@ -268,7 +268,7 @@ with tab_trends:
     )
     st.plotly_chart(fig_hour, use_container_width=True)
 
-    # 4 Scatter plots (kekal)
+    # 4 Scatter plots
     st.subheader("GDP vs Key Variables (All data in range)")
     fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
 
@@ -307,7 +307,7 @@ with tab_trends:
     plt.tight_layout()
     st.pyplot(fig_scatter)
 
-    # Correlation Heatmap (kekal)
+    # Correlation Heatmap
     st.subheader("Correlation Heatmap")
     key_vars = ['gdp', 'employment', 'hours', 'output_hour', 'output_employment']
     key_vars = [v for v in key_vars if v in filtered_data.columns]
@@ -324,10 +324,10 @@ with tab_trends:
     else:
         st.info("Not enough variables for correlation heatmap.")
 
-# (The rest – Model Performance, Sector Prediction, Data Table – kekal sama seperti code sebelum ni)
+# (The rest of the code – Model Performance, Sector Prediction, Data Table – remains unchanged from your last version)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 3: Model Performance
+# Tab 3: Model Performance (unchanged)
 # ─────────────────────────────────────────────────────────────
 with tab_model:
     st.subheader("Model Performance – Detailed Evaluation")
@@ -364,7 +364,7 @@ with tab_model:
     st.dataframe(report_df.style.format('{:.4f}'), use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 4: Sector Prediction
+# Tab 4: Sector Prediction (unchanged)
 # ─────────────────────────────────────────────────────────────
 with tab_predict:
     st.subheader("Predict Dominant Sector")
