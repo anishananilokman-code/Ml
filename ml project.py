@@ -30,7 +30,7 @@ def load_data():
         df = pd.read_csv('clean_data.csv')
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
-        df = df[df['employed'] > 500].copy()  # use 'employed' (notebook column)
+        df = df[df['employment'] > 500].copy()  # remove percentage-like rows
         df = df.drop_duplicates()
         df = df.sort_values('date').groupby(['date', 'sector']).first().reset_index()
         return df
@@ -65,7 +65,7 @@ if filtered_data.empty:
     st.warning(f"No data for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
 
-# Debug: check filtered data
+# Debug: filtered info
 st.sidebar.caption(f"Filtered rows: {len(filtered_data)}")
 st.sidebar.write("Years in filter:")
 st.sidebar.write(filtered_data['date'].dt.year.value_counts().sort_index())
@@ -186,25 +186,25 @@ with tab_kpi:
         c5.metric("% Employers", f"{struc['employed_employer']/tot_workers*100:.1f}%")
 
     # Pie chart (total across range)
-    emp_share = filtered_data.groupby('sector')['employed'].sum().reset_index()
-    fig_pie = px.pie(emp_share, values='employed', names='sector',
+    emp_share = filtered_data.groupby('sector')['employment'].sum().reset_index()
+    fig_pie = px.pie(emp_share, values='employment', names='sector',
                      title="Share of Total Employment by Sector (Selected Range)", hole=0.4)
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 2: Trends & EDA (now matches your notebook exactly)
+# Tab 2: Trends & EDA
 # ─────────────────────────────────────────────────────────────
 with tab_trends:
     st.subheader("Employment Share & Productivity")
 
-    # Pie + Horizontal Bar combo (exact match to notebook)
-    sector_emp_total = filtered_data.groupby('sector')['employed'].sum().sort_values(ascending=False)
+    # Pie + Horizontal Bar combo (matching notebook exactly)
+    sector_emp_total = filtered_data.groupby('sector')['employment'].sum().sort_values(ascending=False)
     percentages = (sector_emp_total / sector_emp_total.sum() * 100).round(1)
 
     col_left, col_right = st.columns([3, 2])
 
     with col_left:
-        # Pie chart (matching notebook style)
+        # Pie chart
         fig_pie, ax1 = plt.subplots(figsize=(8, 8))
         explode = [0.05 if pct < 5 else 0 for pct in percentages]
         wedges, texts, autotexts = ax1.pie(
@@ -219,7 +219,7 @@ with tab_trends:
             wedgeprops={'edgecolor': 'white', 'linewidth': 1.5, 'alpha': 0.9}
         )
 
-        # Improve text
+        # Improve text appearance
         for text in texts:
             text.set_fontsize(10)
             text.set_fontweight('bold')
@@ -232,7 +232,7 @@ with tab_trends:
         st.pyplot(fig_pie)
 
     with col_right:
-        # Horizontal Bar (matching notebook style)
+        # Horizontal Bar
         fig_bar, ax2 = plt.subplots(figsize=(6, 8))
         bars = ax2.barh(range(len(sector_emp_total)), sector_emp_total.values,
                         color=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))),
@@ -257,7 +257,7 @@ with tab_trends:
         plt.tight_layout()
         st.pyplot(fig_bar)
 
-    # Average Output per Hour by Sector (kept for completeness)
+    # Average Output per Hour by Sector
     sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
     fig_hour = px.bar(
         sector_hour_prod.reset_index(),
@@ -268,7 +268,7 @@ with tab_trends:
     )
     st.plotly_chart(fig_hour, use_container_width=True)
 
-    # 4 Scatter plots
+    # 4 Scatter plots with linear fit
     st.subheader("GDP vs Key Variables (All data in range)")
     fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
 
@@ -324,10 +324,8 @@ with tab_trends:
     else:
         st.info("Not enough variables for correlation heatmap.")
 
-# (The rest of the code – Model Performance, Sector Prediction, Data Table – remains unchanged from your last version)
-
 # ─────────────────────────────────────────────────────────────
-# Tab 3: Model Performance (unchanged)
+# Tab 3: Model Performance
 # ─────────────────────────────────────────────────────────────
 with tab_model:
     st.subheader("Model Performance – Detailed Evaluation")
@@ -364,7 +362,7 @@ with tab_model:
     st.dataframe(report_df.style.format('{:.4f}'), use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# Tab 4: Sector Prediction (unchanged)
+# Tab 4: Sector Prediction
 # ─────────────────────────────────────────────────────────────
 with tab_predict:
     st.subheader("Predict Dominant Sector")
