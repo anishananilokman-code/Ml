@@ -65,7 +65,7 @@ if filtered_data.empty:
     st.warning(f"No data for {year_range[0]}–{year_range[1]}. Check available years above.")
     st.stop()
 
-# Debug: filtered info
+# Debug: filtered data info (remove after testing)
 st.sidebar.caption(f"Filtered rows: {len(filtered_data)}")
 st.sidebar.write("Years in filter:")
 st.sidebar.write(filtered_data['date'].dt.year.value_counts().sort_index())
@@ -195,9 +195,9 @@ with tab_kpi:
 # Tab 2: Trends & EDA
 # ─────────────────────────────────────────────────────────────
 with tab_trends:
-    st.subheader("Employment Share & Productivity")
+    st.subheader("Sector Productivity & Correlations")
 
-    # Pie + Horizontal Bar combo (matching notebook exactly)
+    # 1. Pie + Horizontal Bar combo: Share of Total Employment by Sector (no treemap)
     sector_emp_total = filtered_data.groupby('sector')['employment'].sum().sort_values(ascending=False)
     percentages = (sector_emp_total / sector_emp_total.sum() * 100).round(1)
 
@@ -207,45 +207,24 @@ with tab_trends:
         # Pie chart
         fig_pie, ax1 = plt.subplots(figsize=(8, 8))
         explode = [0.05 if pct < 5 else 0 for pct in percentages]
-        wedges, texts, autotexts = ax1.pie(
-            sector_emp_total,
-            labels=sector_emp_total.index,
-            autopct=lambda pct: f'{pct:.1f}%' if pct >= 2 else '',
-            startangle=90,
-            counterclock=False,
-            colors=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))),
-            explode=explode,
-            shadow=True,
-            wedgeprops={'edgecolor': 'white', 'linewidth': 1.5, 'alpha': 0.9}
-        )
-
-        # Improve text appearance
-        for text in texts:
-            text.set_fontsize(10)
-            text.set_fontweight('bold')
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_fontsize(10)
-            autotext.set_fontweight('bold')
-
-        ax1.set_title('Share of Total Employment by Sector', fontsize=16, fontweight='bold')
+        ax1.pie(sector_emp_total, labels=sector_emp_total.index, autopct='%1.1f%%',
+                startangle=90, colors=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))),
+                explode=explode, shadow=True, wedgeprops={'edgecolor': 'white', 'linewidth': 1.5})
+        ax1.set_title('Share of Total Employment by Sector', fontsize=14, fontweight='bold')
         st.pyplot(fig_pie)
 
     with col_right:
         # Horizontal Bar
         fig_bar, ax2 = plt.subplots(figsize=(6, 8))
-        bars = ax2.barh(range(len(sector_emp_total)), sector_emp_total.values,
+        bars = ax2.barh(sector_emp_total.index, sector_emp_total.values,
                         color=plt.cm.Set3(np.linspace(0, 1, len(sector_emp_total))),
                         edgecolor='white', linewidth=1)
-
-        ax2.set_yticks(range(len(sector_emp_total)))
-        ax2.set_yticklabels(sector_emp_total.index)
+        ax2.set_xlabel('Number of Employees')
+        ax2.set_title('Employment by Sector (Absolute)')
         ax2.invert_yaxis()
-        ax2.set_xlabel('Number of Employees', fontsize=12, fontweight='bold')
-        ax2.set_title('Employment by Sector (Absolute Values)', fontsize=14, fontweight='bold')
 
-        # Add value labels on bars
-        for i, bar in enumerate(bars):
+        # Add value labels
+        for bar in bars:
             width = bar.get_width()
             ax2.text(width + (max(sector_emp_total.values) * 0.01),
                      bar.get_y() + bar.get_height()/2,
@@ -257,7 +236,7 @@ with tab_trends:
         plt.tight_layout()
         st.pyplot(fig_bar)
 
-    # Average Output per Hour by Sector
+    # 2. Average Output per Hour by Sector
     sector_hour_prod = filtered_data.groupby('sector')['output_hour'].mean().sort_values(ascending=False)
     fig_hour = px.bar(
         sector_hour_prod.reset_index(),
@@ -268,7 +247,7 @@ with tab_trends:
     )
     st.plotly_chart(fig_hour, use_container_width=True)
 
-    # 4 Scatter plots with linear fit
+    # 3. 4 Scatter plots with linear fit
     st.subheader("GDP vs Key Variables (All data in range)")
     fig_scatter, axes = plt.subplots(1, 4, figsize=(20, 5))
 
@@ -307,7 +286,7 @@ with tab_trends:
     plt.tight_layout()
     st.pyplot(fig_scatter)
 
-    # Correlation Heatmap
+    # 4. Correlation Heatmap
     st.subheader("Correlation Heatmap")
     key_vars = ['gdp', 'employment', 'hours', 'output_hour', 'output_employment']
     key_vars = [v for v in key_vars if v in filtered_data.columns]
